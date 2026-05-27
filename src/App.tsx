@@ -2401,19 +2401,18 @@ export default function App() {
                         const rFrom = 32;
                         const rTo = 32;
                         const arrowOffset = 2.5;
-
-                        // self loop logic
+                                    // self loop logic (drawn to the right side to avoid overlapping vertical lines)
                         if (isSelfLoop) {
                           const R = rFrom;
-                          const xStart = fromNode.x - R * 0.5;
-                          const yStart = fromNode.y - R * 0.7;
-                          const xEnd = fromNode.x + R * 0.5;
-                          const yEnd = fromNode.y - R * 0.7;
+                          const xStart = fromNode.x + R * 0.7;
+                          const yStart = fromNode.y - R * 0.5;
+                          const xEnd = fromNode.x + R * 0.7;
+                          const yEnd = fromNode.y + R * 0.5;
                           
-                          const cp1x = fromNode.x - R * 1.2;
-                          const cp1y = fromNode.y - R * 1.8;
-                          const cp2x = fromNode.x + R * 1.2;
-                          const cp2y = fromNode.y - R * 1.8;
+                          const cp1x = fromNode.x + R * 2.0;
+                          const cp1y = fromNode.y - R * 1.1;
+                          const cp2x = fromNode.x + R * 2.0;
+                          const cp2y = fromNode.y + R * 1.1;
 
                           const arcPath = `M ${xStart} ${yStart} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${xEnd} ${yEnd}`;
                           return (
@@ -2428,8 +2427,8 @@ export default function App() {
                                 style={isLastTransitionTaken ? { filter: 'url(#pda-glow-line)' } : {}}
                               />
                               <rect
-                                x={fromNode.x - 22}
-                                y={fromNode.y - R - 25}
+                                x={fromNode.x + R * 1.5 - 22}
+                                y={fromNode.y - 6}
                                 width="44"
                                 height="12"
                                 rx="3"
@@ -2437,8 +2436,8 @@ export default function App() {
                                 className="stroke-purple-500/10 stroke-[0.5]"
                               />
                               <text
-                                x={fromNode.x}
-                                y={fromNode.y - R - 16}
+                                x={fromNode.x + R * 1.5}
+                                y={fromNode.y + 3}
                                 textAnchor="middle"
                                 className="fill-purple-300 font-mono font-bold"
                                 style={{ fontSize: '9px' }}
