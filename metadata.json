@@ -1,0 +1,6 @@
+{
+  "name": "DFA, PDA, and CFG Tracer & String Validator",
+  "description": "A visual interactive DFA, PDA, and CFG tracer and string validator with star constellation animations, step-by-step speed controls, and complete transition logging.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
