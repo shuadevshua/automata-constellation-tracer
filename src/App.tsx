@@ -2442,7 +2442,7 @@ export default function App() {
                                 className="fill-purple-300 font-mono font-bold"
                                 style={{ fontSize: '9px' }}
                               >
-                                {transition.symbol || 'Δ'}
+                                {transition.symbol}
                               </text>
                             </g>
                           );
@@ -2486,24 +2486,28 @@ export default function App() {
                                 className={isAnimated ? 'animated-beam' : ''}
                                 style={isLastTransitionTaken ? { filter: 'url(#pda-glow-line)' } : {}}
                               />
-                              <rect
-                                x={bx - 18}
-                                y={by - 7}
-                                width="36"
-                                height="13"
-                                rx="3"
-                                fill="#090d1f"
-                                className="stroke-purple-500/10 stroke-[0.5]"
-                              />
-                              <text
-                                x={bx}
-                                y={by + 2}
-                                textAnchor="middle"
-                                className="fill-purple-400 font-mono font-bold"
-                                style={{ fontSize: '9px' }}
-                              >
-                                {transition.symbol || 'Δ'}
-                              </text>
+                              {transition.symbol !== '' && (
+                                <>
+                                  <rect
+                                    x={bx - 18}
+                                    y={by - 7}
+                                    width="36"
+                                    height="13"
+                                    rx="3"
+                                    fill="#090d1f"
+                                    className="stroke-purple-500/10 stroke-[0.5]"
+                                  />
+                                  <text
+                                    x={bx}
+                                    y={by + 2}
+                                    textAnchor="middle"
+                                    className="fill-purple-400 font-mono font-bold"
+                                    style={{ fontSize: '9px' }}
+                                  >
+                                    {transition.symbol}
+                                  </text>
+                                </>
+                              )}
                             </g>
                           );
                         } else {
@@ -2534,24 +2538,28 @@ export default function App() {
                                 className={isAnimated ? 'animated-beam' : ''}
                                 style={isLastTransitionTaken ? { filter: 'url(#pda-glow-line)' } : {}}
                               />
-                              <rect
-                                x={textX - 16}
-                                y={textY - 7}
-                                width="32"
-                                height="13"
-                                rx="3"
-                                fill="#090d1f"
-                                className="stroke-purple-500/10 stroke-[0.5]"
-                              />
-                              <text
-                                x={textX}
-                                y={textY + 2}
-                                textAnchor="middle"
-                                className="fill-purple-400 font-mono font-bold"
-                                style={{ fontSize: '9px' }}
-                              >
-                                {transition.symbol || 'Δ'}
-                              </text>
+                              {transition.symbol !== '' && (
+                                <>
+                                  <rect
+                                    x={textX - 16}
+                                    y={textY - 7}
+                                    width="32"
+                                    height="13"
+                                    rx="3"
+                                    fill="#090d1f"
+                                    className="stroke-purple-500/10 stroke-[0.5]"
+                                  />
+                                  <text
+                                    x={textX}
+                                    y={textY + 2}
+                                    textAnchor="middle"
+                                    className="fill-purple-400 font-mono font-bold"
+                                    style={{ fontSize: '9px' }}
+                                  >
+                                    {transition.symbol}
+                                  </text>
+                                </>
+                              )}
                             </g>
                           );
                         }
