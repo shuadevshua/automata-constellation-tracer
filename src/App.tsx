@@ -16,7 +16,9 @@ import {
   XCircle,
   AlertTriangle,
   Lightbulb,
-  Layers
+  Layers,
+  ZoomIn,
+  ZoomOut
 } from 'lucide-react';
 import { DFAS } from './data/dfas';
 import { PDA_NODES, PDA_TRANSITIONS, PDA2_NODES, PDA2_TRANSITIONS } from './data/pdas';
@@ -64,7 +66,14 @@ export default function App() {
   const [selectedPdaId, setSelectedPdaId] = useState<string>('pda1');
 
   // PDA Simulation State
+  const [pdaInputMode, setPdaInputMode] = useState<'single' | 'batch'>('single');
   const [pdaInputString, setPdaInputString] = useState<string>('baaaab');
+  const [pdaBatchInputs, setPdaBatchInputs] = useState<string[]>(['baaaab', 'aba', '']);
+  const [pdaBatchResults, setPdaBatchResults] = useState<{input: string, verdict: 'accepted' | 'rejected' | 'error'}[]>([]);
+  const [isPdaBatchRunning, setIsPdaBatchRunning] = useState<boolean>(false);
+  const [currentPdaBatchIndex, setCurrentPdaBatchIndex] = useState<number>(0);
+  const [pdaBatchNotification, setPdaBatchNotification] = useState<string | null>(null);
+  const [showPdaBatchSummary, setShowPdaBatchSummary] = useState<boolean>(false);
   const [pdaSpeedMs, setPdaSpeedMs] = useState<number>(800);
   const [pdaStatus, setPdaStatus] = useState<SimulationStatus>('idle');
   const [pdaCurrentNodeId, setPdaCurrentNodeId] = useState<string>('START');
@@ -72,6 +81,15 @@ export default function App() {
   const [pdaStack, setPdaStack] = useState<string[]>([]);
   const [pdaHistory, setPdaHistory] = useState<PdaLogEntry[]>([]);
   const [isStackTelemetryExpanded, setIsStackTelemetryExpanded] = useState<boolean>(true);
+  const [pdaZoom, setPdaZoom] = useState<number>(1);
+
+  const pdaViewBox = useMemo(() => {
+    const w = 800 / pdaZoom;
+    const h = 1050 / pdaZoom;
+    const x = (800 - w) / 2;
+    const y = (1050 - h) / 2;
+    return `${x} ${y} ${w} ${h}`;
+  }, [pdaZoom]);
 
   const pdaStuckState = useMemo(() => {
     if (pdaHistory.length === 0) return 'START';
@@ -100,8 +118,13 @@ export default function App() {
 
   useEffect(() => {
     const defaultInput = selectedPdaId === 'pda1' ? 'baaaab' : '00000';
+    const invalidInput = selectedPdaId === 'pda1' ? 'aba' : '1010';
     setPdaInputString(defaultInput);
+    setPdaBatchInputs([defaultInput, invalidInput, '']);
     resetPdaSimulation();
+    setIsPdaBatchRunning(false);
+    setShowPdaBatchSummary(false);
+    setPdaZoom(1);
   }, [selectedPdaId]);
 
   // Trigger auto-timer refs
@@ -158,19 +181,33 @@ export default function App() {
     }
   }, [inputString, batchInputs, activeDfa, inputMode]);
 
-  // Validate PDA input string for only a and b
+  // Validate PDA input string for only a/b or 0/1
   const pdaValidationError = useMemo(() => {
-    if (!pdaInputString) return null;
     const allowed = selectedPdaId === 'pda1' ? ['a', 'b'] : ['0', '1'];
     const allowedStr = selectedPdaId === 'pda1' ? 'a and b' : '0 and 1';
-    for (let i = 0; i < pdaInputString.length; i++) {
-      const char = pdaInputString[i];
-      if (!allowed.includes(char)) {
-        return `Invalid symbol. This PDA only accepts ${allowedStr}.`;
+    if (pdaInputMode === 'single') {
+      if (!pdaInputString) return null;
+      for (let i = 0; i < pdaInputString.length; i++) {
+        const char = pdaInputString[i];
+        if (!allowed.includes(char)) {
+          return `Symbol "${char}" is not allowed. This PDA only accepts ${allowedStr}.`;
+        }
       }
+      return null;
+    } else {
+      for (let index = 0; index < pdaBatchInputs.length; index++) {
+        const str = pdaBatchInputs[index];
+        if (!str) continue; // skip empty
+        for (let i = 0; i < str.length; i++) {
+          const char = str[i];
+          if (!allowed.includes(char)) {
+            return `String ${index + 1}: Symbol "${char}" is not allowed. This PDA only accepts ${allowedStr}.`;
+          }
+        }
+      }
+      return null;
     }
-    return null;
-  }, [pdaInputString, selectedPdaId]);
+  }, [pdaInputString, pdaBatchInputs, selectedPdaId, pdaInputMode]);
 
   // Auto clean timer on unmount o state update
   useEffect(() => {
@@ -282,6 +319,54 @@ export default function App() {
       }
     }
   }, [simulationStatus, isBatchRunning]);
+
+  // Process PDA batch progression
+  useEffect(() => {
+    if (isPdaBatchRunning && (pdaStatus === 'accepted' || pdaStatus === 'rejected' || pdaStatus === 'error')) {
+      const currentInput = pdaBatchInputs[currentPdaBatchIndex];
+      const verdict = pdaStatus as 'accepted' | 'rejected' | 'error';
+      
+      setPdaBatchResults(prev => {
+        const newResults = [...prev];
+        newResults[currentPdaBatchIndex] = { input: currentInput, verdict };
+        return newResults;
+      });
+
+      // Find next non-empty input
+      let nextIndex = currentPdaBatchIndex + 1;
+      while (nextIndex < pdaBatchInputs.length && !pdaBatchInputs[nextIndex]) {
+        nextIndex++;
+      }
+
+      if (nextIndex < pdaBatchInputs.length) {
+        // Schedule next run
+        setPdaBatchNotification(`Starting Next String: "${pdaBatchInputs[nextIndex]}"`);
+        setTimeout(() => setPdaBatchNotification(null), 2500);
+
+        setTimeout(() => {
+          setCurrentPdaBatchIndex(nextIndex);
+          setPdaInputString(pdaBatchInputs[nextIndex]);
+          
+          // reset and start next
+          setPdaStatus('idle');
+          setPdaCurrentNodeId('START');
+          setPdaIndex(0);
+          setPdaStack([]);
+          setPdaHistory([]);
+          
+          setTimeout(() => {
+            setPdaStatus('running');
+          }, 50);
+        }, 1500);
+      } else {
+        // Batch finished
+        setTimeout(() => {
+          setIsPdaBatchRunning(false);
+          setShowPdaBatchSummary(true);
+        }, 1500);
+      }
+    }
+  }, [pdaStatus, isPdaBatchRunning]);
 
   // ================= PDA Tracing & Simulation Logic =================
   const resetPdaSimulation = () => {
@@ -1176,17 +1261,29 @@ export default function App() {
             <span>PDA</span>
           </button>
           <button
-          id="tab-cfg"
-          onClick={() => setSelectedTab('cfg')}
-          className={`px-4 md:px-6 py-1.5 rounded-full text-xs font-semibold tracking-wider transition-all duration-300 flex items-center gap-2 ${
-            selectedTab === 'cfg' 
-              ? 'bg-amber-600 text-white shadow-md shadow-amber-900/40 font-bold scale-105' 
-              : 'text-slate-400 hover:text-white hover:bg-white/5'
-          }`}
-        >
-          <BookOpen className="w-3.5 h-3.5" />
-          <span>CFG</span>
-        </button>
+            id="tab-cfg"
+            onClick={() => setSelectedTab('cfg')}
+            className={`px-4 md:px-6 py-1.5 rounded-full text-xs font-semibold tracking-wider transition-all duration-300 flex items-center gap-2 ${
+              selectedTab === 'cfg' 
+                ? 'bg-amber-600 text-white shadow-md shadow-amber-900/40 font-bold scale-105' 
+                : 'text-slate-400 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            <span>CFG</span>
+          </button>
+          <button
+            id="tab-manual"
+            onClick={() => setSelectedTab('manual')}
+            className={`px-4 md:px-6 py-1.5 rounded-full text-xs font-semibold tracking-wider transition-all duration-300 flex items-center gap-2 ${
+              selectedTab === 'manual' 
+                ? 'bg-sky-600 text-white shadow-md shadow-sky-900/40 font-bold scale-105' 
+                : 'text-slate-400 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <HelpCircle className="w-3.5 h-3.5" />
+            <span>Manual</span>
+          </button>
         </nav>
 
         {/* Metadata Badging */}
@@ -2318,71 +2415,158 @@ export default function App() {
                 </p>
               </div>
 
-              {/* String Inputs */}
-              <div className="space-y-2">
-                <label htmlFor="pda-string-input" className="text-[10px] uppercase font-bold tracking-widest text-purple-400 block">String Stream Selector</label>
-                <div className="relative">
-                  <input 
-                    id="pda-string-input"
-                    type="text" 
-                    placeholder={`Enter symbol streams (${selectedPdaId === 'pda1' ? 'a, b' : '0, 1'})...`} 
-                    value={pdaInputString} 
-                    onChange={(e) => {
-                      resetPdaSimulation();
-                      setPdaInputString(e.target.value);
-                    }}
-                    className={`w-full bg-slate-900/90 border rounded-xl pl-3 pr-8 py-2 text-sm focus:outline-none transition-colors font-mono tracking-widest ${
-                      pdaValidationError 
-                        ? 'border-rose-500/50 bg-rose-950/10 text-rose-200 focus:border-rose-500' 
-                        : 'border-white/10 text-purple-100 focus:border-purple-500'
+              {/* Box 3: Mode Toggle & Inputs */}
+              <div className="space-y-3">
+                <div className="flex bg-slate-900/60 p-1 border border-white/5 rounded-lg shadow-inner">
+                  <button
+                    onClick={() => { setPdaInputMode('single'); resetPdaSimulation(); }}
+                    className={`flex-1 py-1.5 rounded-md text-xs font-semibold tracking-wider transition-all duration-300 ${
+                      pdaInputMode === 'single' ? 'bg-purple-600 text-white shadow-md shadow-purple-900/40' : 'text-slate-400 hover:text-white hover:bg-white/5'
                     }`}
-                  />
-                  {pdaInputString && (
-                    <button 
-                      onClick={() => {
-                        setPdaInputString('');
-                        resetPdaSimulation();
-                      }}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 focus:outline-none font-mono text-xs"
-                      title="Clear string"
-                    >
-                      ×
-                    </button>
-                  )}
+                  >
+                    Single Mode
+                  </button>
+                  <button
+                    onClick={() => { setPdaInputMode('batch'); resetPdaSimulation(); }}
+                    className={`flex-1 py-1.5 rounded-md text-xs font-semibold tracking-wider transition-all duration-300 ${
+                      pdaInputMode === 'batch' ? 'bg-purple-600 text-white shadow-md shadow-purple-900/40' : 'text-slate-400 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    Batch Mode
+                  </button>
                 </div>
 
-                {/* Validation Errors banner */}
-                {pdaValidationError && (
-                  <div className="flex items-start gap-1.5 p-2 bg-rose-950/30 border border-rose-500/20 rounded-lg text-rose-300 text-[10px] leading-tight font-sans">
-                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
-                    <span>{pdaValidationError}</span>
-                  </div>
+                {pdaInputMode === 'single' ? (
+                  <>
+                    <label htmlFor="pda-string-input" className="text-[10px] uppercase font-bold tracking-widest text-purple-400 block">String Stream Selector</label>
+                    <div className="relative">
+                      <input 
+                        id="pda-string-input"
+                        type="text" 
+                        placeholder={`Enter symbol streams (${selectedPdaId === 'pda1' ? 'a, b' : '0, 1'})...`} 
+                        value={pdaInputString} 
+                        onChange={(e) => {
+                          resetPdaSimulation();
+                          setPdaInputString(e.target.value);
+                        }}
+                        className={`w-full bg-slate-900/90 border rounded-xl pl-3 pr-8 py-2 text-sm focus:outline-none transition-colors font-mono tracking-widest ${
+                          pdaValidationError 
+                            ? 'border-rose-500/50 bg-rose-950/10 text-rose-200 focus:border-rose-500' 
+                            : 'border-white/10 text-purple-100 focus:border-purple-500'
+                        }`}
+                      />
+                      {pdaInputString && (
+                        <button 
+                          onClick={() => {
+                            setPdaInputString('');
+                            resetPdaSimulation();
+                          }}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 focus:outline-none font-mono text-xs"
+                          title="Clear string"
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Validation Errors banner */}
+                    {pdaValidationError && (
+                      <div className="flex items-start gap-1.5 p-2 bg-rose-950/30 border border-rose-500/20 rounded-lg text-rose-300 text-[10px] leading-tight font-sans">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+                        <span>{pdaValidationError}</span>
+                      </div>
+                    )}
+
+                    {/* Preset triggers */}
+                    <div className="space-y-1.5 pt-1.5">
+                      <span className="text-[10px] text-slate-500 block font-semibold uppercase">Helpful Presets:</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          onClick={() => {
+                            resetPdaSimulation();
+                            setPdaInputString(pdaSampleInput);
+                          }}
+                          className="text-[10px] font-mono bg-emerald-950/50 hover:bg-emerald-900/40 border border-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded-md transition-colors"
+                        >
+                          Suggest Action ({pdaSampleInput})
+                        </button>
+                        <button
+                          onClick={() => {
+                            resetPdaSimulation();
+                            setPdaInputString(pdaSampleInputInvalid);
+                          }}
+                          className="text-[10px] font-mono bg-rose-950/50 hover:bg-rose-900/40 border border-rose-500/20 text-rose-300 px-2.5 py-1 rounded-md transition-colors"
+                        >
+                          Suggest Trap ({pdaSampleInputInvalid})
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <label className="text-[10px] uppercase font-bold tracking-widest text-purple-400 block">Batch Input Queue</label>
+                    <div className="space-y-2">
+                      {pdaBatchInputs.map((str, idx) => (
+                        <div key={idx} className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 font-bold">{idx + 1}.</span>
+                          <input 
+                            type="text" 
+                            placeholder={`String ${idx + 1}...`} 
+                            value={str} 
+                            onChange={(e) => {
+                              const newBatch = [...pdaBatchInputs];
+                              newBatch[idx] = e.target.value;
+                              setPdaBatchInputs(newBatch);
+                              resetPdaSimulation();
+                            }}
+                            className="w-full bg-slate-900/90 border border-white/10 rounded-xl pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:border-purple-500 transition-colors font-mono tracking-widest text-purple-100"
+                          />
+                        </div>
+                      ))}
+                      <div className="flex justify-between items-center px-1">
+                        <button onClick={() => setPdaBatchInputs([...pdaBatchInputs, ''])} className="text-[10px] text-purple-400 hover:text-purple-300 uppercase font-bold">+ Add String</button>
+                        {pdaBatchInputs.length > 3 && (
+                          <button onClick={() => setPdaBatchInputs(pdaBatchInputs.slice(0, -1))} className="text-[10px] text-rose-400 hover:text-rose-300 uppercase font-bold">- Remove</button>
+                        )}
+                      </div>
+                    </div>
+
+                    {pdaValidationError && (
+                      <div className="flex items-start gap-1.5 p-2 bg-rose-950/30 border border-rose-500/20 rounded-lg text-rose-300 text-[10px] leading-tight font-sans">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+                        <span>{pdaValidationError}</span>
+                      </div>
+                    )}
+                    
+                    <button
+                      onClick={() => {
+                        resetPdaSimulation();
+                        setPdaBatchResults([]);
+                        
+                        let firstIndex = 0;
+                        while (firstIndex < pdaBatchInputs.length && !pdaBatchInputs[firstIndex]) {
+                          firstIndex++;
+                        }
+                        
+                        if (firstIndex < pdaBatchInputs.length) {
+                          setCurrentPdaBatchIndex(firstIndex);
+                          setPdaInputString(pdaBatchInputs[firstIndex]);
+                          setIsPdaBatchRunning(true);
+                          setTimeout(() => setPdaStatus('running'), 50);
+                        }
+                      }}
+                      disabled={!!pdaValidationError || isPdaBatchRunning || pdaBatchInputs.every(s => !s)}
+                      className={`w-full rounded-xl py-2 px-3 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer mt-2 ${
+                        pdaValidationError || isPdaBatchRunning || pdaBatchInputs.every(s => !s)
+                          ? 'bg-slate-800 text-slate-500 border border-white/5 cursor-not-allowed opacity-50'
+                          : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg shadow-emerald-950/60'
+                      }`}
+                    >
+                      <Layers className="w-3.5 h-3.5" />
+                      <span>{isPdaBatchRunning ? 'BATCH RUNNING...' : 'RUN BATCH'}</span>
+                    </button>
+                  </>
                 )}
-
-                {/* Preset triggers */}
-                <div className="space-y-1.5 pt-1.5">
-                  <span className="text-[10px] text-slate-500 block font-semibold uppercase">Helpful Presets:</span>
-                  <div className="flex flex-wrap gap-1.5">
-                    <button
-                      onClick={() => {
-                        resetPdaSimulation();
-                        setPdaInputString(pdaSampleInput);
-                      }}
-                      className="text-[10px] font-mono bg-emerald-950/50 hover:bg-emerald-900/40 border border-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded-md transition-colors"
-                    >
-                      Suggest Action ({pdaSampleInput})
-                    </button>
-                    <button
-                      onClick={() => {
-                        resetPdaSimulation();
-                        setPdaInputString(pdaSampleInputInvalid);
-                      }}
-                      className="text-[10px] font-mono bg-rose-950/50 hover:bg-rose-900/40 border border-rose-500/20 text-rose-300 px-2.5 py-1 rounded-md transition-colors"
-                    >
-                      Suggest Trap ({pdaSampleInputInvalid})
-                    </button>
-                  </div>
-                </div>
               </div>
 
               {/* Execution Controllers */}
@@ -2392,7 +2576,8 @@ export default function App() {
                   {pdaStatus === 'running' ? (
                     <button
                       onClick={pausePdaSimulation}
-                      className="bg-purple-700 hover:bg-purple-600 text-white rounded-xl py-2 px-3 text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-purple-950/40 cursor-pointer"
+                      disabled={isPdaBatchRunning}
+                      className={`bg-purple-700 hover:bg-purple-600 text-white rounded-xl py-2 px-3 text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-purple-950/40 ${isPdaBatchRunning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                     >
                       <Pause className="w-3.5 h-3.5 fill-current" />
                       <span>PAUSE</span>
@@ -2400,9 +2585,9 @@ export default function App() {
                   ) : (
                     <button
                       onClick={startPdaSimulation}
-                      disabled={!!pdaValidationError}
+                      disabled={!!pdaValidationError || isPdaBatchRunning}
                       className={`rounded-xl py-2 px-3 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                        pdaValidationError
+                        pdaValidationError || isPdaBatchRunning
                           ? 'bg-slate-800 text-slate-500 border border-white/5 cursor-not-allowed opacity-50'
                           : 'bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-500 hover:to-violet-500 text-white shadow-lg shadow-purple-950/60'
                       }`}
@@ -2414,9 +2599,9 @@ export default function App() {
 
                   <button
                     onClick={executePdaSingleStep}
-                    disabled={!!pdaValidationError || pdaStatus === 'accepted' || pdaStatus === 'rejected'}
+                    disabled={!!pdaValidationError || pdaStatus === 'accepted' || pdaStatus === 'rejected' || isPdaBatchRunning}
                     className={`rounded-xl py-2 px-3 text-xs font-bold transition-all border flex items-center justify-center gap-1.5 cursor-pointer ${
-                      pdaValidationError || pdaStatus === 'accepted' || pdaStatus === 'rejected'
+                      pdaValidationError || pdaStatus === 'accepted' || pdaStatus === 'rejected' || isPdaBatchRunning
                         ? 'bg-slate-900/20 text-slate-600 border-white/5 cursor-not-allowed opacity-45'
                         : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-white/10'
                     }`}
@@ -2429,7 +2614,8 @@ export default function App() {
                 <div className="grid grid-cols-1 gap-2 pt-1.5">
                   <button
                     onClick={resetPdaSimulation}
-                    className="bg-slate-950 hover:bg-slate-900 text-slate-300 border border-white/5 rounded-xl py-2 px-3 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    disabled={isPdaBatchRunning}
+                    className={`bg-slate-950 hover:bg-slate-900 text-slate-300 border border-white/5 rounded-xl py-2 px-3 text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${isPdaBatchRunning ? 'opacity-55 cursor-not-allowed' : 'cursor-pointer'}`}
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span>RESET SIMULATION</span>
@@ -2515,11 +2701,40 @@ export default function App() {
                   
                   {/* Stage pane wrapper to anchor the overlay at bottom-right */}
                   <div className="flex-1 relative h-full overflow-hidden">
+                    {/* Floating Zoom Controls Panel */}
+                    <div className="absolute top-4 right-4 z-20 flex flex-col items-center gap-1.5 bg-slate-900/90 border border-purple-500/20 backdrop-blur-md rounded-xl p-1.5 shadow-lg shadow-purple-950/40">
+                      <button 
+                        onClick={() => setPdaZoom(prev => Math.min(2.0, prev + 0.1))}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-purple-300 hover:bg-purple-950/30 transition-all cursor-pointer"
+                        title="Zoom In"
+                      >
+                        <ZoomIn className="w-4 h-4" />
+                      </button>
+                      <span className="text-[10px] font-mono font-bold text-purple-300 min-w-[36px] text-center select-none py-0.5">
+                        {Math.round(pdaZoom * 100)}%
+                      </span>
+                      <button 
+                        onClick={() => setPdaZoom(prev => Math.max(0.5, prev - 0.1))}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-purple-300 hover:bg-purple-950/30 transition-all cursor-pointer"
+                        title="Zoom Out"
+                      >
+                        <ZoomOut className="w-4 h-4" />
+                      </button>
+                      <div className="w-4 h-[1px] bg-purple-950/50 my-1"></div>
+                      <button 
+                        onClick={() => setPdaZoom(1.0)}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-purple-300 hover:bg-purple-950/30 transition-all cursor-pointer"
+                        title="Reset Zoom"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
                     {/* Scrollable SVG stage */}
                     <div id="pda-svg-stage-container" className="w-full h-full relative overflow-y-auto scrollbar-thin p-2">
                     <svg 
-                      className="w-full text-purple-500"
-                      viewBox="0 0 800 1050"
+                      className="w-full text-purple-500 transition-all duration-300"
+                      viewBox={pdaViewBox}
                       style={{ minHeight: '1050px' }}
                     >
                       {/* SVG Filters and Markers */}
@@ -3190,6 +3405,51 @@ export default function App() {
                     </div>
                   </div>
                 </footer>
+
+                {/* Overlaid PDA Batch Summary Notification */}
+                {showPdaBatchSummary && (
+                  <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm z-20 flex items-center justify-center p-4">
+                    <div className="bg-slate-900 border border-purple-500/30 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
+                      <div className="bg-purple-900/40 border-b border-purple-500/30 p-4 flex justify-between items-center">
+                        <h3 className="text-white font-bold flex items-center gap-2"><Layers className="w-5 h-5 text-purple-400" /> PDA Batch Execution Summary</h3>
+                        <button onClick={() => setShowPdaBatchSummary(false)} className="text-slate-400 hover:text-white">×</button>
+                      </div>
+                      <div className="p-4 max-h-[60vh] overflow-y-auto">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="border-b border-white/10 text-xs text-slate-400">
+                              <th className="pb-2 font-semibold">Input String</th>
+                              <th className="pb-2 font-semibold text-right">Verdict</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {pdaBatchResults.map((res, idx) => (
+                              <tr key={idx} className="border-b border-white/5 text-sm font-mono">
+                                <td className="py-3 text-slate-200">{res.input || '<empty>'}</td>
+                                <td className="py-3 text-right">
+                                  {res.verdict === 'accepted' ? (
+                                    <span className="inline-flex items-center gap-1 text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded text-xs font-bold">
+                                      <CheckCircle2 className="w-3.5 h-3.5" /> ACCEPTED
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-rose-400 bg-rose-400/10 px-2 py-1 rounded text-xs font-bold">
+                                      <XCircle className="w-3.5 h-3.5" /> REJECTED
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="p-4 border-t border-white/5 bg-slate-950">
+                        <button onClick={() => setShowPdaBatchSummary(false)} className="w-full bg-slate-800 hover:bg-slate-700 text-white rounded-lg py-2 text-sm font-bold transition-colors">
+                          Close Summary
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </section>
           </>
         )}
@@ -3198,6 +3458,123 @@ export default function App() {
         {selectedTab === 'cfg' && (
           <div id="section-cfg" className="flex-1 overflow-y-auto w-full p-4 md:p-6 pb-20">
             <CfgPage />
+          </div>
+        )}
+
+        {/* ======================= TAB 4: MANUAL MOUNT POINT ======================= */}
+        {selectedTab === 'manual' && (
+          <div id="section-manual" className="flex-1 overflow-y-auto w-full p-4 md:p-6 pb-20 space-y-6">
+            
+            {/* Header Banner */}
+            <div className="bg-gradient-to-r from-sky-950/80 via-indigo-950/50 to-slate-950/80 border border-sky-500/20 rounded-3xl p-6 md:p-8 relative overflow-hidden shadow-xl">
+              <div className="absolute inset-0 pointer-events-none opacity-10 bg-grid-white/[0.02]" />
+              <div className="relative z-10 space-y-2">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-sky-400 font-bold block">
+                  Reference Guide
+                </span>
+                <h2 className="text-xl md:text-2xl font-extrabold text-white tracking-wide uppercase">
+                  Automata Constellation Manual
+                </h2>
+                <p className="text-xs md:text-sm text-slate-400 max-w-2xl font-light leading-relaxed">
+                  Welcome to the Constellation Tracer manual. This interactive platform lets you trace input string transitions, construct stacks, and map derivations step-by-step.
+                </p>
+              </div>
+            </div>
+
+            {/* Main Sections Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              
+              {/* DFA Card */}
+              <div className="bg-slate-950/40 backdrop-blur-md border border-purple-500/10 rounded-2xl p-5 space-y-4 hover:border-purple-500/25 transition-all">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">DFA Tracer</h3>
+                    <span className="text-[9px] text-purple-400 font-mono">Deterministic Finite Automata</span>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400 font-light leading-relaxed">
+                  Tracks character transitions between fixed states. Green highlights depict currently active and accepting states, while red represents the trap state.
+                </p>
+                <div className="bg-slate-950/50 rounded-xl p-3 border border-purple-950/60 text-[11px] font-mono text-purple-300 space-y-2">
+                  <div>1. Select DFA 1 or 2 using the selector.</div>
+                  <div>2. Enter binary or letter sequences in the input.</div>
+                  <div>3. Use controls to trace steps or run auto-play.</div>
+                </div>
+              </div>
+
+              {/* PDA Card */}
+              <div className="bg-slate-950/40 backdrop-blur-md border border-fuchsia-500/10 rounded-2xl p-5 space-y-4 hover:border-fuchsia-500/25 transition-all">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-fuchsia-500/10 border border-fuchsia-500/20 flex items-center justify-center text-fuchsia-400">
+                    <Database className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">PDA Tracer</h3>
+                    <span className="text-[9px] text-fuchsia-400 font-mono">Pushdown Automata</span>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400 font-light leading-relaxed">
+                  Extends finite state logic with a stack memory structure. Features a dynamic telemetry panel visualizing stack items in real-time as they are pushed or popped.
+                </p>
+                <div className="bg-slate-950/50 rounded-xl p-3 border border-fuchsia-950/60 text-[11px] font-mono text-fuchsia-300 space-y-2">
+                  <div>1. Check nodes designated as Push or Pop.</div>
+                  <div>2. Trace character matching against the stack values.</div>
+                  <div>3. Adjust scale with the vertical Zoom panel.</div>
+                </div>
+              </div>
+
+              {/* CFG Card */}
+              <div className="bg-slate-950/40 backdrop-blur-md border border-amber-500/10 rounded-2xl p-5 space-y-4 hover:border-amber-500/25 transition-all">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                    <BookOpen className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">CFG Derivation</h3>
+                    <span className="text-[9px] text-amber-400 font-mono">Context-Free Grammar</span>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400 font-light leading-relaxed">
+                  Maps parsing of recursive patterns. Generates a visual derivation tree tracking leftmost variable expansions and matching terminal tokens.
+                </p>
+                <div className="bg-slate-950/50 rounded-xl p-3 border border-amber-950/60 text-[11px] font-mono text-amber-300 space-y-2">
+                  <div>1. Observe S-start leftmost expansion.</div>
+                  <div>2. Select steps in the Trail to navigate states.</div>
+                  <div>3. Visual nodes glow as expansions activate.</div>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Features Spotlight Section */}
+            <div className="bg-slate-950/20 border border-white/5 rounded-3xl p-6 space-y-6">
+              <h3 className="text-sm font-bold text-slate-300 uppercase tracking-widest font-mono border-b border-white/5 pb-2">
+                Specialized Platform Features
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold text-sky-400 uppercase tracking-wider">
+                    Batch Testing Mode
+                  </h4>
+                  <p className="text-xs text-slate-400 font-light leading-relaxed">
+                    Switch any model from Single Mode to Batch Mode using the sidebar toggle. This enables adding a queue of test strings. Press Run Batch to run them sequentially and view the final verdicts in the consolidated overlay modal report.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold text-purple-400 uppercase tracking-wider">
+                    Interactive SVG Controls
+                  </h4>
+                  <p className="text-xs text-slate-400 font-light leading-relaxed">
+                    The PDA view is equipped with vertical zoom controls. Click + to zoom in, - to zoom out, and the counter-clockwise rotation button to reset zoom back to 100%. Viewports center automatically on zoom adjustments to keep active states in focus.
+                  </p>
+                </div>
+              </div>
+            </div>
+
           </div>
         )}
       </main>
@@ -3273,7 +3650,7 @@ export default function App() {
         </div>
       )}
       {/* Toast Notification Container */}
-      {batchNotification && (
+      {(batchNotification || pdaBatchNotification) && (
         <div className="fixed top-8 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-top-4 duration-300">
           <div className="bg-slate-900/95 border border-purple-500/50 shadow-[0_0_20px_rgba(168,85,247,0.3)] backdrop-blur-md rounded-full px-6 py-3 flex items-center gap-3">
             <span className="flex h-3 w-3 relative">
@@ -3281,7 +3658,7 @@ export default function App() {
               <span className="relative inline-flex rounded-full h-3 w-3 bg-purple-500"></span>
             </span>
             <span className="text-sm font-mono font-bold tracking-widest text-purple-200">
-              {batchNotification}
+              {batchNotification || pdaBatchNotification}
             </span>
           </div>
         </div>

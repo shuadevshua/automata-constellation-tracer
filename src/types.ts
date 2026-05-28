@@ -34,7 +34,7 @@ export interface LogEntry {
   toState: string;
 }
 
-export type PageId = 'dfa' | 'pda' | 'cfg';
+export type PageId = 'dfa' | 'pda' | 'cfg' | 'manual';
 
 export type SimulationStatus = 'idle' | 'running' | 'paused' | 'accepted' | 'rejected' | 'error';
 

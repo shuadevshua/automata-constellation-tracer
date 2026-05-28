@@ -10,7 +10,8 @@ import {
   XCircle, 
   AlertTriangle, 
   Compass, 
-  Terminal
+  Terminal,
+  Layers
 } from 'lucide-react';
 
 interface DerivationNode {
@@ -91,7 +92,14 @@ export const CfgPage: React.FC = () => {
     return GRAMMARS.find(g => g.id === selectedCfgId) || GRAMMARS[0];
   }, [selectedCfgId]);
 
+  const [inputMode, setInputMode] = useState<'single' | 'batch'>('single');
   const [inputString, setInputString] = useState<string>(activeCfg.sampleInput);
+  const [batchInputs, setBatchInputs] = useState<string[]>(['baaaa', 'aba', '']);
+  const [batchResults, setBatchResults] = useState<{input: string, verdict: 'accepted' | 'rejected' | 'error'}[]>([]);
+  const [isBatchRunning, setIsBatchRunning] = useState<boolean>(false);
+  const [currentBatchIndex, setCurrentBatchIndex] = useState<number>(0);
+  const [batchNotification, setBatchNotification] = useState<string | null>(null);
+  const [showBatchSummary, setShowBatchSummary] = useState<boolean>(false);
   const [speedMs, setSpeedMs] = useState<number>(1000);
   const [simulationStatus, setSimulationStatus] = useState<'idle' | 'running' | 'paused' | 'accepted' | 'rejected'>('idle');
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
@@ -101,7 +109,10 @@ export const CfgPage: React.FC = () => {
 
   useEffect(() => {
     setInputString(activeCfg.sampleInput);
+    setBatchInputs([activeCfg.sampleInput, activeCfg.sampleInputInvalid, '']);
     resetSimulation();
+    setIsBatchRunning(false);
+    setShowBatchSummary(false);
   }, [selectedCfgId]);
 
   useEffect(() => {
@@ -337,6 +348,28 @@ export const CfgPage: React.FC = () => {
     computeParentX(root);
   };
 
+  const validationError = useMemo(() => {
+    if (inputMode === 'single') {
+      for (let i = 0; i < inputString.length; i++) {
+        if (!activeCfg.alphabet.includes(inputString[i])) {
+          return `Symbol "${inputString[i]}" is not in the alphabet {${activeCfg.alphabet.join(', ')}}`;
+        }
+      }
+      return null;
+    } else {
+      for (let index = 0; index < batchInputs.length; index++) {
+        const str = batchInputs[index];
+        if (!str) continue;
+        for (let i = 0; i < str.length; i++) {
+          if (!activeCfg.alphabet.includes(str[i])) {
+            return `String ${index + 1}: Symbol "${str[i]}" is not in the alphabet {${activeCfg.alphabet.join(', ')}}`;
+          }
+        }
+      }
+      return null;
+    }
+  }, [inputString, batchInputs, activeCfg, inputMode]);
+
   const parsedData = useMemo(() => {
     for (let i = 0; i < inputString.length; i++) {
       if (!activeCfg.alphabet.includes(inputString[i])) {
@@ -472,6 +505,81 @@ export const CfgPage: React.FC = () => {
     setInputString(presetValue);
   };
 
+  // Process CFG batch progression
+  useEffect(() => {
+    if (isBatchRunning) {
+      if (!parsedData.isValid) {
+        // String is rejected/invalid
+        const currentInput = batchInputs[currentBatchIndex];
+        setBatchResults(prev => {
+          const newResults = [...prev];
+          newResults[currentBatchIndex] = { input: currentInput, verdict: 'rejected' };
+          return newResults;
+        });
+
+        // Find next non-empty input
+        let nextIndex = currentBatchIndex + 1;
+        while (nextIndex < batchInputs.length && !batchInputs[nextIndex]) {
+          nextIndex++;
+        }
+
+        if (nextIndex < batchInputs.length) {
+          setBatchNotification(`Starting Next String: "${batchInputs[nextIndex]}"`);
+          setTimeout(() => setBatchNotification(null), 2500);
+
+          setTimeout(() => {
+            setCurrentBatchIndex(nextIndex);
+            setInputString(batchInputs[nextIndex]);
+            setSimulationStatus('idle');
+            setCurrentStepIndex(0);
+          }, 1500);
+        } else {
+          // Batch finished
+          setTimeout(() => {
+            setIsBatchRunning(false);
+            setShowBatchSummary(true);
+          }, 1500);
+        }
+      } else if (simulationStatus === 'accepted') {
+        // String is accepted
+        const currentInput = batchInputs[currentBatchIndex];
+        setBatchResults(prev => {
+          const newResults = [...prev];
+          newResults[currentBatchIndex] = { input: currentInput, verdict: 'accepted' };
+          return newResults;
+        });
+
+        // Find next non-empty input
+        let nextIndex = currentBatchIndex + 1;
+        while (nextIndex < batchInputs.length && !batchInputs[nextIndex]) {
+          nextIndex++;
+        }
+
+        if (nextIndex < batchInputs.length) {
+          setBatchNotification(`Starting Next String: "${batchInputs[nextIndex]}"`);
+          setTimeout(() => setBatchNotification(null), 2500);
+
+          setTimeout(() => {
+            setCurrentBatchIndex(nextIndex);
+            setInputString(batchInputs[nextIndex]);
+            setSimulationStatus('idle');
+            setCurrentStepIndex(0);
+            
+            setTimeout(() => {
+              setSimulationStatus('running');
+            }, 50);
+          }, 1500);
+        } else {
+          // Batch finished
+          setTimeout(() => {
+            setIsBatchRunning(false);
+            setShowBatchSummary(true);
+          }, 1500);
+        }
+      }
+    }
+  }, [simulationStatus, isBatchRunning, parsedData.isValid, currentBatchIndex]);
+
   return (
     <div className="space-y-6">
       <div className="bg-slate-950/80 border border-purple-500/10 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -532,61 +640,151 @@ export const CfgPage: React.FC = () => {
           </div>
 
           <div className="bg-slate-950/40 backdrop-blur-md border border-white/5 rounded-2xl p-4 space-y-4">
-            <div className="space-y-2">
-              <label htmlFor="string-input" className="text-[10px] uppercase font-bold tracking-widest text-[#fbbf24] block">INPUT STRING STREAM</label>
-              <div className="relative">
-                <input 
-                  id="string-input"
-                  type="text" 
-                  placeholder={`Enter alphabet symbols...`} 
-                  value={inputString} 
-                  onChange={(e) => {
-                    resetSimulation();
-                    setInputString(e.target.value.toLowerCase());
-                  }}
-                  className={`w-full bg-slate-900 border rounded-xl pl-3 pr-8 py-2 text-sm focus:outline-none transition-colors font-mono tracking-widest ${
-                    !parsedData.isValid 
-                      ? 'border-rose-500/40 bg-rose-950/10 text-rose-300 focus:border-rose-500' 
-                      : 'border-white/10 text-amber-100 focus:border-amber-500'
+            {/* Box 3: Mode Toggle & Inputs */}
+            <div className="space-y-3">
+              <div className="flex bg-slate-900/60 p-1 border border-white/5 rounded-lg shadow-inner">
+                <button
+                  onClick={() => { setInputMode('single'); resetSimulation(); }}
+                  className={`flex-1 py-1.5 rounded-md text-xs font-semibold tracking-wider transition-all duration-300 ${
+                    inputMode === 'single' ? 'bg-amber-600 text-white shadow-md shadow-amber-900/40' : 'text-slate-400 hover:text-white hover:bg-white/5'
                   }`}
-                />
-                {inputString && (
-                  <button 
-                    onClick={() => {
-                      setInputString('');
-                      resetSimulation();
-                    }}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 font-mono text-xs"
-                  >
-                    ×
-                  </button>
-                )}
+                >
+                  Single Mode
+                </button>
+                <button
+                  onClick={() => { setInputMode('batch'); resetSimulation(); }}
+                  className={`flex-1 py-1.5 rounded-md text-xs font-semibold tracking-wider transition-all duration-300 ${
+                    inputMode === 'batch' ? 'bg-amber-600 text-white shadow-md shadow-amber-900/40' : 'text-slate-400 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  Batch Mode
+                </button>
               </div>
 
-              {!parsedData.isValid && (
-                <div className="flex items-start gap-1.5 p-2 bg-rose-950/30 border border-rose-500/20 rounded-lg text-rose-300 text-[10px] leading-tight">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
-                  <span>{parsedData.error}</span>
+              {inputMode === 'single' ? (
+                <div className="space-y-2">
+                  <label htmlFor="string-input" className="text-[10px] uppercase font-bold tracking-widest text-[#fbbf24] block">INPUT STRING STREAM</label>
+                  <div className="relative">
+                    <input 
+                      id="string-input"
+                      type="text" 
+                      placeholder={`Enter alphabet symbols...`} 
+                      value={inputString} 
+                      onChange={(e) => {
+                        resetSimulation();
+                        setInputString(e.target.value.toLowerCase());
+                      }}
+                      className={`w-full bg-slate-900 border rounded-xl pl-3 pr-8 py-2 text-sm focus:outline-none transition-colors font-mono tracking-widest ${
+                        !parsedData.isValid 
+                          ? 'border-rose-500/40 bg-rose-950/10 text-rose-300 focus:border-rose-500' 
+                          : 'border-white/10 text-amber-100 focus:border-amber-500'
+                      }`}
+                    />
+                    {inputString && (
+                      <button 
+                        onClick={() => {
+                          setInputString('');
+                          resetSimulation();
+                        }}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 font-mono text-xs"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+
+                  {!parsedData.isValid && (
+                    <div className="flex items-start gap-1.5 p-2 bg-rose-950/30 border border-rose-500/20 rounded-lg text-rose-300 text-[10px] leading-tight">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+                      <span>{parsedData.error}</span>
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5 pt-1">
+                    <span className="text-[10px] text-slate-500 block font-semibold uppercase">Helpful Presets:</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        onClick={() => loadPreset(activeCfg.sampleInput)}
+                        className="text-[10px] font-mono bg-emerald-950/50 hover:bg-emerald-900/40 border border-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded-md transition-all"
+                      >
+                        Suggest Match ({activeCfg.sampleInput})
+                      </button>
+                      <button
+                        onClick={() => loadPreset(activeCfg.sampleInputInvalid)}
+                        className="text-[10px] font-mono bg-rose-950/50 hover:bg-rose-900/40 border border-rose-500/20 text-rose-300 px-2.5 py-1 rounded-md transition-all"
+                      >
+                        Suggest Fail ({activeCfg.sampleInputInvalid})
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase font-bold tracking-widest text-[#fbbf24] block">Batch Input Queue</label>
+                  <div className="space-y-2">
+                    {batchInputs.map((str, idx) => (
+                      <div key={idx} className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 font-bold">{idx + 1}.</span>
+                        <input 
+                          type="text" 
+                          placeholder={`String ${idx + 1}...`} 
+                          value={str} 
+                          onChange={(e) => {
+                            const newBatch = [...batchInputs];
+                            newBatch[idx] = e.target.value.toLowerCase();
+                            setBatchInputs(newBatch);
+                            resetSimulation();
+                          }}
+                          className="w-full bg-slate-900 border border-white/10 rounded-xl pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:border-amber-500 transition-colors font-mono tracking-widest text-amber-100"
+                        />
+                      </div>
+                    ))}
+                    <div className="flex justify-between items-center px-1">
+                      <button onClick={() => setBatchInputs([...batchInputs, ''])} className="text-[10px] text-amber-400 hover:text-amber-300 uppercase font-bold">+ Add String</button>
+                      {batchInputs.length > 3 && (
+                        <button onClick={() => setBatchInputs(batchInputs.slice(0, -1))} className="text-[10px] text-rose-400 hover:text-rose-300 uppercase font-bold">- Remove</button>
+                      )}
+                    </div>
+                  </div>
+
+                  {validationError && (
+                    <div className="flex items-start gap-1.5 p-2 bg-rose-950/30 border border-rose-500/20 rounded-lg text-rose-300 text-[10px] leading-tight">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+                      <span>{validationError}</span>
+                    </div>
+                  )}
+                  
+                  <button
+                    onClick={() => {
+                      resetSimulation();
+                      setBatchResults([]);
+                      
+                      let firstIndex = 0;
+                      while (firstIndex < batchInputs.length && !batchInputs[firstIndex]) {
+                        firstIndex++;
+                      }
+                      
+                      if (firstIndex < batchInputs.length) {
+                        setCurrentBatchIndex(firstIndex);
+                        setInputString(batchInputs[firstIndex]);
+                        setIsBatchRunning(true);
+                        setTimeout(() => {
+                          setSimulationStatus('running');
+                        }, 50);
+                      }
+                    }}
+                    disabled={!!validationError || isBatchRunning || batchInputs.every(s => !s)}
+                    className={`w-full rounded-xl py-2 px-3 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer mt-2 ${
+                      validationError || isBatchRunning || batchInputs.every(s => !s)
+                        ? 'bg-slate-800 text-slate-500 border border-white/5 cursor-not-allowed opacity-50'
+                        : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg shadow-emerald-950/60'
+                    }`}
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>{isBatchRunning ? 'BATCH RUNNING...' : 'RUN BATCH'}</span>
+                  </button>
                 </div>
               )}
-
-              <div className="space-y-1.5 pt-1">
-                <span className="text-[10px] text-slate-500 block font-semibold uppercase">Helpful Presets:</span>
-                <div className="flex flex-wrap gap-1.5">
-                  <button
-                    onClick={() => loadPreset(activeCfg.sampleInput)}
-                    className="text-[10px] font-mono bg-emerald-950/50 hover:bg-emerald-900/40 border border-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded-md transition-all"
-                  >
-                    Suggest Match ({activeCfg.sampleInput})
-                  </button>
-                  <button
-                    onClick={() => loadPreset(activeCfg.sampleInputInvalid)}
-                    className="text-[10px] font-mono bg-rose-950/50 hover:bg-rose-900/40 border border-rose-500/20 text-rose-300 px-2.5 py-1 rounded-md transition-all"
-                  >
-                    Suggest Fail ({activeCfg.sampleInputInvalid})
-                  </button>
-                </div>
-              </div>
             </div>
 
             <div className="space-y-2 pt-2 border-t border-white/5">
@@ -595,7 +793,8 @@ export const CfgPage: React.FC = () => {
                 {simulationStatus === 'running' ? (
                   <button
                     onClick={pauseSimulation}
-                    className="bg-amber-600 hover:bg-amber-500 text-white rounded-xl py-2 px-3 text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-lg cursor-pointer"
+                    disabled={isBatchRunning}
+                    className={`bg-amber-600 hover:bg-amber-500 text-white rounded-xl py-2 px-3 text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-lg ${isBatchRunning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                   >
                     <Pause className="w-3.5 h-3.5 fill-current" />
                     <span>PAUSE</span>
@@ -603,9 +802,9 @@ export const CfgPage: React.FC = () => {
                 ) : (
                   <button
                     onClick={startSimulation}
-                    disabled={!parsedData.isValid}
+                    disabled={!parsedData.isValid || isBatchRunning}
                     className={`rounded-xl py-2 px-3 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                      !parsedData.isValid
+                      !parsedData.isValid || isBatchRunning
                         ? 'bg-slate-800 text-slate-500 border border-white/5 cursor-not-allowed opacity-50'
                         : 'bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white shadow-lg shadow-amber-950/60'
                     }`}
@@ -617,9 +816,9 @@ export const CfgPage: React.FC = () => {
 
                 <button
                   onClick={executeSingleStep}
-                  disabled={!parsedData.isValid || simulationStatus === 'accepted' || (parsedData.steps && currentStepIndex >= parsedData.steps.length - 1)}
+                  disabled={!parsedData.isValid || simulationStatus === 'accepted' || (parsedData.steps && currentStepIndex >= parsedData.steps.length - 1) || isBatchRunning}
                   className={`rounded-xl py-2 px-3 text-xs font-bold transition-all border flex items-center justify-center gap-1.5 cursor-pointer ${
-                    !parsedData.isValid || simulationStatus === 'accepted' || (parsedData.steps && currentStepIndex >= parsedData.steps.length - 1)
+                    !parsedData.isValid || simulationStatus === 'accepted' || (parsedData.steps && currentStepIndex >= parsedData.steps.length - 1) || isBatchRunning
                       ? 'bg-slate-900/20 text-slate-600 border-white/5 cursor-not-allowed opacity-45'
                       : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-white/10'
                   }`}
@@ -632,9 +831,9 @@ export const CfgPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-2 pt-1">
                 <button
                   onClick={executePrevStep}
-                  disabled={currentStepIndex === 0}
+                  disabled={currentStepIndex === 0 || isBatchRunning}
                   className={`rounded-xl py-2 px-3 text-xs font-bold transition-all border flex items-center justify-center gap-1.5 cursor-pointer ${
-                    currentStepIndex === 0
+                    currentStepIndex === 0 || isBatchRunning
                       ? 'bg-slate-900/20 text-slate-600 border-white/5 cursor-not-allowed opacity-45'
                       : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-white/10'
                   }`}
@@ -644,7 +843,8 @@ export const CfgPage: React.FC = () => {
 
                 <button
                   onClick={resetSimulation}
-                  className="bg-slate-950 hover:bg-slate-900 text-slate-300 border border-white/5 rounded-xl py-2 px-3 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  disabled={isBatchRunning}
+                  className={`bg-slate-950 hover:bg-slate-900 text-slate-300 border border-white/5 rounded-xl py-2 px-3 text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${isBatchRunning ? 'opacity-55 cursor-not-allowed' : 'cursor-pointer'}`}
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                   <span>RESET</span>
@@ -911,6 +1111,53 @@ export const CfgPage: React.FC = () => {
                 </div>
               </div>
             )}
+
+            {/* Overlaid CFG Batch Summary Notification */}
+            {showBatchSummary && (
+              <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm z-20 flex items-center justify-center p-4">
+                <div className="bg-slate-900 border border-amber-500/30 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
+                  <div className="bg-amber-900/40 border-b border-amber-500/30 p-4 flex justify-between items-center">
+                    <h3 className="text-white font-bold flex items-center gap-2">
+                      <Layers className="w-5 h-5 text-amber-400" /> CFG Batch Execution Summary
+                    </h3>
+                    <button onClick={() => setShowBatchSummary(false)} className="text-slate-400 hover:text-white">×</button>
+                  </div>
+                  <div className="p-4 max-h-[60vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-white/10 text-xs text-slate-400">
+                          <th className="pb-2 font-semibold">Input String</th>
+                          <th className="pb-2 font-semibold text-right">Verdict</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {batchResults.map((res, idx) => (
+                          <tr key={idx} className="border-b border-white/5 text-sm font-mono">
+                            <td className="py-3 text-slate-200">{res.input || '<empty>'}</td>
+                            <td className="py-3 text-right">
+                              {res.verdict === 'accepted' ? (
+                                <span className="inline-flex items-center gap-1 text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded text-xs font-bold">
+                                  <CheckCircle2 className="w-3.5 h-3.5" /> ACCEPTED
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-rose-400 bg-rose-400/10 px-2 py-1 rounded text-xs font-bold">
+                                  <XCircle className="w-3.5 h-3.5" /> REJECTED
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="p-4 border-t border-white/5 bg-slate-950">
+                    <button onClick={() => setShowBatchSummary(false)} className="w-full bg-slate-800 hover:bg-slate-700 text-white rounded-lg py-2 text-sm font-bold transition-colors">
+                      Close Summary
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="bg-slate-950/40 backdrop-blur-md border border-white/5 rounded-2xl p-4 space-y-4">
@@ -979,6 +1226,21 @@ export const CfgPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Floating Toast Notification Bar for Batch Messages */}
+      {batchNotification && (
+        <div className="fixed top-8 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="bg-slate-900/95 border border-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.3)] backdrop-blur-md rounded-full px-6 py-3 flex items-center gap-3">
+            <span className="flex h-3 w-3 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+            </span>
+            <span className="text-sm font-mono font-bold tracking-widest text-amber-200">
+              {batchNotification}
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
