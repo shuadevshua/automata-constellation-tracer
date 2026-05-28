@@ -8,7 +8,6 @@ import {
   Sparkles, 
   Sliders, 
   Activity, 
-  Undo,
   BookOpen,
   Compass,
   Database,
@@ -17,13 +16,11 @@ import {
   XCircle,
   AlertTriangle,
   Lightbulb,
-  ExternalLink,
-  Milestone,
   Layers
 } from 'lucide-react';
 import { DFAS } from './data/dfas';
 import { PDA_NODES, PDA_TRANSITIONS, PDA2_NODES, PDA2_TRANSITIONS } from './data/pdas';
-import { PageId, SimulationStatus, LogEntry, DfaState, DfaTransition, PdaNode, PdaTransition, PdaLogEntry } from './types';
+import { PageId, SimulationStatus, LogEntry, DfaTransition, PdaLogEntry } from './types';
 import { CfgPage } from './components/CfgPage';
 // Twinkle star properties for background constellation effect
 interface Star {
@@ -46,7 +43,14 @@ export default function App() {
   }, [selectedDfaId]);
 
   // Input & validation state
+  const [inputMode, setInputMode] = useState<'single' | 'batch'>('single');
   const [inputString, setInputString] = useState<string>(activeDfa.sampleInput);
+  const [batchInputs, setBatchInputs] = useState<string[]>(['baaaab', 'abab', 'bbbbb', '']);
+  const [batchResults, setBatchResults] = useState<{input: string, verdict: 'accepted' | 'rejected' | 'error'}[]>([]);
+  const [isBatchRunning, setIsBatchRunning] = useState<boolean>(false);
+  const [currentBatchIndex, setCurrentBatchIndex] = useState<number>(0);
+  const [batchNotification, setBatchNotification] = useState<string | null>(null);
+  const [showBatchSummary, setShowBatchSummary] = useState<boolean>(false);
   const [speedMs, setSpeedMs] = useState<number>(800);
   
   // Real-time Simulation Traversal state
@@ -58,7 +62,6 @@ export default function App() {
 
   // PDA / CFG empty pages mock states
   const [selectedPdaId, setSelectedPdaId] = useState<string>('pda1');
-  const [selectedCfgId, setSelectedCfgId] = useState<string>('cfg1');
 
   // PDA Simulation State
   const [pdaInputString, setPdaInputString] = useState<string>('baaaab');
@@ -125,20 +128,35 @@ export default function App() {
   // Update input text when switching DFA
   useEffect(() => {
     setInputString(activeDfa.sampleInput);
+    setBatchInputs([activeDfa.sampleInput, activeDfa.sampleInputInvalid, '']);
     resetSimulation();
   }, [selectedDfaId]);
 
   // Validate the whole input string for the active DFA alphabet
   const validationError = useMemo(() => {
-    if (!inputString) return null;
-    for (let i = 0; i < inputString.length; i++) {
-      const char = inputString[i];
-      if (!activeDfa.alphabet.includes(char)) {
-        return `Symbol "${char}" is not in the alphabet {${activeDfa.alphabet.join(', ')}}`;
+    if (inputMode === 'single') {
+      if (!inputString) return null;
+      for (let i = 0; i < inputString.length; i++) {
+        const char = inputString[i];
+        if (!activeDfa.alphabet.includes(char)) {
+          return `Symbol "${char}" is not in the alphabet {${activeDfa.alphabet.join(', ')}}`;
+        }
       }
+      return null;
+    } else {
+      for (let index = 0; index < batchInputs.length; index++) {
+        const str = batchInputs[index];
+        if (!str) continue; // skip empty
+        for (let i = 0; i < str.length; i++) {
+          const char = str[i];
+          if (!activeDfa.alphabet.includes(char)) {
+            return `String ${index + 1}: Symbol "${char}" is not in the alphabet {${activeDfa.alphabet.join(', ')}}`;
+          }
+        }
+      }
+      return null;
     }
-    return null;
-  }, [inputString, activeDfa]);
+  }, [inputString, batchInputs, activeDfa, inputMode]);
 
   // Validate PDA input string for only a and b
   const pdaValidationError = useMemo(() => {
@@ -217,6 +235,53 @@ export default function App() {
       setSimulationStatus('rejected');
     }
   };
+
+  // Process batch progression
+  useEffect(() => {
+    if (isBatchRunning && (simulationStatus === 'accepted' || simulationStatus === 'rejected' || simulationStatus === 'error')) {
+      const currentInput = batchInputs[currentBatchIndex];
+      const verdict = simulationStatus as 'accepted' | 'rejected' | 'error';
+      
+      setBatchResults(prev => {
+        const newResults = [...prev];
+        newResults[currentBatchIndex] = { input: currentInput, verdict };
+        return newResults;
+      });
+
+      // Find next non-empty input
+      let nextIndex = currentBatchIndex + 1;
+      while (nextIndex < batchInputs.length && !batchInputs[nextIndex]) {
+        nextIndex++;
+      }
+      
+      if (nextIndex < batchInputs.length) {
+        // Schedule next run
+        setBatchNotification(`Starting Next String: "${batchInputs[nextIndex]}"`);
+        setTimeout(() => setBatchNotification(null), 2500);
+
+        setTimeout(() => {
+          setCurrentBatchIndex(nextIndex);
+          setInputString(batchInputs[nextIndex]);
+          
+          // reset and start next
+          setSimulationStatus('idle');
+          setCurrentStateId(activeDfa.startState);
+          setCurrentIndex(0);
+          setHistoryLog([]);
+          
+          setTimeout(() => {
+            setSimulationStatus('running');
+          }, 50);
+        }, 1500);
+      } else {
+        // Batch finished
+        setTimeout(() => {
+          setIsBatchRunning(false);
+          setShowBatchSummary(true);
+        }, 1500);
+      }
+    }
+  }, [simulationStatus, isBatchRunning]);
 
   // ================= PDA Tracing & Simulation Logic =================
   const resetPdaSimulation = () => {
@@ -880,6 +945,8 @@ export default function App() {
     setCurrentStateId(activeDfa.startState);
     setCurrentIndex(0);
     setHistoryLog([]);
+    setIsBatchRunning(false);
+    setShowBatchSummary(false);
   };
 
   // Run full simulation instantly (if needed) or trace slowly
@@ -1172,65 +1239,153 @@ export default function App() {
                 </p>
               </div>
 
-              {/* Box 3: String Inputs */}
-              <div className="space-y-2">
-                <label htmlFor="string-input" className="text-[10px] uppercase font-bold tracking-widest text-purple-400 block">String Stream Selector</label>
-                <div className="relative">
-                  <input 
-                    id="string-input"
-                    type="text" 
-                    placeholder={`Enter symbol streams (${activeDfa.alphabet.join(', ')})...`} 
-                    value={inputString} 
-                    onChange={(e) => {
-                      resetSimulation();
-                      setInputString(e.target.value);
-                    }}
-                    className={`w-full bg-slate-900/90 border rounded-xl pl-3 pr-8 py-2 text-sm focus:outline-none transition-colors font-mono tracking-widest ${
-                      validationError 
-                        ? 'border-rose-500/50 bg-rose-950/10 text-rose-200 focus:border-rose-500' 
-                        : 'border-white/10 text-purple-100 focus:border-purple-500'
+              {/* Box 3: Mode Toggle & Inputs */}
+              <div className="space-y-3">
+                <div className="flex bg-slate-900/60 p-1 border border-white/5 rounded-lg shadow-inner">
+                  <button
+                    onClick={() => { setInputMode('single'); resetSimulation(); }}
+                    className={`flex-1 py-1.5 rounded-md text-xs font-semibold tracking-wider transition-all duration-300 ${
+                      inputMode === 'single' ? 'bg-purple-600 text-white shadow-md shadow-purple-900/40' : 'text-slate-400 hover:text-white hover:bg-white/5'
                     }`}
-                  />
-                  {inputString && (
-                    <button 
+                  >
+                    Single Mode
+                  </button>
+                  <button
+                    onClick={() => { setInputMode('batch'); resetSimulation(); }}
+                    className={`flex-1 py-1.5 rounded-md text-xs font-semibold tracking-wider transition-all duration-300 ${
+                      inputMode === 'batch' ? 'bg-purple-600 text-white shadow-md shadow-purple-900/40' : 'text-slate-400 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    Batch Mode
+                  </button>
+                </div>
+                
+                {inputMode === 'single' ? (
+                  <>
+                    <label htmlFor="string-input" className="text-[10px] uppercase font-bold tracking-widest text-purple-400 block">String Stream Selector</label>
+                    <div className="relative">
+                      <input 
+                        id="string-input"
+                        type="text" 
+                        placeholder={`Enter symbol streams (${activeDfa.alphabet.join(', ')})...`} 
+                        value={inputString} 
+                        onChange={(e) => {
+                          resetSimulation();
+                          setInputString(e.target.value);
+                        }}
+                        className={`w-full bg-slate-900/90 border rounded-xl pl-3 pr-8 py-2 text-sm focus:outline-none transition-colors font-mono tracking-widest ${
+                          validationError 
+                            ? 'border-rose-500/50 bg-rose-950/10 text-rose-200 focus:border-rose-500' 
+                            : 'border-white/10 text-purple-100 focus:border-purple-500'
+                        }`}
+                      />
+                      {inputString && (
+                        <button 
+                          onClick={() => {
+                            setInputString('');
+                            resetSimulation();
+                          }}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 focus:outline-none font-mono text-xs"
+                          title="Clear string"
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Validation Errors banner */}
+                    {validationError && (
+                      <div className="flex items-start gap-1.5 p-2 bg-rose-950/30 border border-rose-500/20 rounded-lg text-rose-300 text-[10px] leading-tight font-sans">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+                        <span>{validationError}</span>
+                      </div>
+                    )}
+
+                    {/* Suggestions triggers */}
+                    <div className="space-y-1.5 pt-1.5">
+                      <span className="text-[10px] text-slate-500 block font-semibold uppercase">Helpful Presets:</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          onClick={() => loadPreset(activeDfa.sampleInput)}
+                          className="text-[10px] font-mono bg-emerald-950/50 hover:bg-emerald-900/40 border border-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded-md transition-colors"
+                        >
+                          Suggest Action ({activeDfa.sampleInput})
+                        </button>
+                        <button
+                          onClick={() => loadPreset(activeDfa.sampleInputInvalid)}
+                          className="text-[10px] font-mono bg-rose-950/50 hover:bg-rose-900/40 border border-rose-500/20 text-rose-300 px-2.5 py-1 rounded-md transition-colors"
+                        >
+                          Suggest Trap ({activeDfa.sampleInputInvalid})
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <label className="text-[10px] uppercase font-bold tracking-widest text-purple-400 block">Batch Input Queue</label>
+                    <div className="space-y-2">
+                      {batchInputs.map((str, idx) => (
+                        <div key={idx} className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 font-bold">{idx + 1}.</span>
+                          <input 
+                            type="text" 
+                            placeholder={`String ${idx + 1}...`} 
+                            value={str} 
+                            onChange={(e) => {
+                              const newBatch = [...batchInputs];
+                              newBatch[idx] = e.target.value;
+                              setBatchInputs(newBatch);
+                              resetSimulation();
+                            }}
+                            className="w-full bg-slate-900/90 border border-white/10 rounded-xl pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:border-purple-500 transition-colors font-mono tracking-widest text-purple-100"
+                          />
+                        </div>
+                      ))}
+                      <div className="flex justify-between items-center px-1">
+                        <button onClick={() => setBatchInputs([...batchInputs, ''])} className="text-[10px] text-purple-400 hover:text-purple-300 uppercase font-bold">+ Add String</button>
+                        {batchInputs.length > 3 && (
+                          <button onClick={() => setBatchInputs(batchInputs.slice(0, -1))} className="text-[10px] text-rose-400 hover:text-rose-300 uppercase font-bold">- Remove</button>
+                        )}
+                      </div>
+                    </div>
+
+                    {validationError && (
+                      <div className="flex items-start gap-1.5 p-2 bg-rose-950/30 border border-rose-500/20 rounded-lg text-rose-300 text-[10px] leading-tight font-sans">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+                        <span>{validationError}</span>
+                      </div>
+                    )}
+                    
+                    <button
                       onClick={() => {
-                        setInputString('');
                         resetSimulation();
+                        setBatchResults([]);
+                        
+                        // find first non-empty input
+                        let firstIndex = 0;
+                        while (firstIndex < batchInputs.length && !batchInputs[firstIndex]) {
+                          firstIndex++;
+                        }
+                        
+                        if (firstIndex < batchInputs.length) {
+                          setCurrentBatchIndex(firstIndex);
+                          setInputString(batchInputs[firstIndex]);
+                          setIsBatchRunning(true);
+                          setTimeout(() => setSimulationStatus('running'), 50);
+                        }
                       }}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 focus:outline-none font-mono text-xs"
-                      title="Clear string"
+                      disabled={!!validationError || isBatchRunning || batchInputs.every(s => !s)}
+                      className={`w-full rounded-xl py-2 px-3 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer mt-2 ${
+                        validationError || isBatchRunning || batchInputs.every(s => !s)
+                          ? 'bg-slate-800 text-slate-500 border border-white/5 cursor-not-allowed opacity-50'
+                          : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg shadow-emerald-950/60'
+                      }`}
                     >
-                      ×
+                      <Layers className="w-3.5 h-3.5" />
+                      <span>{isBatchRunning ? 'BATCH RUNNING...' : 'RUN BATCH'}</span>
                     </button>
-                  )}
-                </div>
-
-                {/* Validation Errors banner */}
-                {validationError && (
-                  <div className="flex items-start gap-1.5 p-2 bg-rose-950/30 border border-rose-500/20 rounded-lg text-rose-300 text-[10px] leading-tight font-sans">
-                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
-                    <span>{validationError}</span>
-                  </div>
+                  </>
                 )}
-
-                {/* Suggestions triggers */}
-                <div className="space-y-1.5 pt-1.5">
-                  <span className="text-[10px] text-slate-500 block font-semibold uppercase">Helpful Presets:</span>
-                  <div className="flex flex-wrap gap-1.5">
-                    <button
-                      onClick={() => loadPreset(activeDfa.sampleInput)}
-                      className="text-[10px] font-mono bg-emerald-950/50 hover:bg-emerald-900/40 border border-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded-md transition-colors"
-                    >
-                      Suggest Action ({activeDfa.sampleInput})
-                    </button>
-                    <button
-                      onClick={() => loadPreset(activeDfa.sampleInputInvalid)}
-                      className="text-[10px] font-mono bg-rose-950/50 hover:bg-rose-900/40 border border-rose-500/20 text-rose-300 px-2.5 py-1 rounded-md transition-colors"
-                    >
-                      Suggest Trap ({activeDfa.sampleInputInvalid})
-                    </button>
-                  </div>
-                </div>
               </div>
 
               {/* Box 4: Execution Controllers */}
@@ -1240,7 +1395,8 @@ export default function App() {
                   {simulationStatus === 'running' ? (
                     <button
                       onClick={pauseSimulation}
-                      className="bg-purple-700 hover:bg-purple-600 text-white rounded-xl py-2 px-3 text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-purple-950/40 cursor-pointer"
+                      disabled={isBatchRunning}
+                      className={`bg-purple-700 hover:bg-purple-600 text-white rounded-xl py-2 px-3 text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-purple-950/40 ${isBatchRunning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                     >
                       <Pause className="w-3.5 h-3.5 fill-current" />
                       <span>PAUSE</span>
@@ -1248,9 +1404,9 @@ export default function App() {
                   ) : (
                     <button
                       onClick={startSimulation}
-                      disabled={!!validationError}
+                      disabled={!!validationError || isBatchRunning}
                       className={`rounded-xl py-2 px-3 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                        validationError
+                        validationError || isBatchRunning
                           ? 'bg-slate-800 text-slate-500 border border-white/5 cursor-not-allowed opacity-50'
                           : 'bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-500 hover:to-violet-500 text-white shadow-lg shadow-purple-950/60'
                       }`}
@@ -1262,9 +1418,9 @@ export default function App() {
 
                   <button
                     onClick={executeSingleStep}
-                    disabled={!!validationError || simulationStatus === 'accepted' || simulationStatus === 'rejected'}
+                    disabled={!!validationError || simulationStatus === 'accepted' || simulationStatus === 'rejected' || isBatchRunning}
                     className={`rounded-xl py-2 px-3 text-xs font-bold transition-all border flex items-center justify-center gap-1.5 cursor-pointer ${
-                      validationError || simulationStatus === 'accepted' || simulationStatus === 'rejected'
+                      validationError || simulationStatus === 'accepted' || simulationStatus === 'rejected' || isBatchRunning
                         ? 'bg-slate-900/20 text-slate-600 border-white/5 cursor-not-allowed opacity-45'
                         : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-white/10'
                     }`}
@@ -1387,7 +1543,7 @@ export default function App() {
                       </feMerge>
                     </filter>
 
-                    <filter id="glow-line" x="-10%" y="-10%" width="120%" height="120%">
+                    <filter id="glow-line" filterUnits="userSpaceOnUse" x="-20%" y="-20%" width="140%" height="140%">
                       <feGaussianBlur stdDeviation="3" result="blur" />
                       <feMerge>
                         <feMergeNode in="blur" />
@@ -1477,24 +1633,29 @@ export default function App() {
                     // Check if current connection beam is active (i.e. just traversed in last logged step)
                     const isLastTransitionTaken = historyLog.length > 0 && 
                       historyLog[historyLog.length - 1].fromState === fromStateId && 
-                      historyLog[historyLog.length - 1].toState === toStateId &&
-                      historyLog[historyLog.length - 1].symbol === groupValue.transitions.find(t => t.symbol === historyLog[historyLog.length - 1].symbol)?.symbol;
+                      historyLog[historyLog.length - 1].toState === toStateId;
 
                     const isAnyTransitionTaken = historyLog.some(log => log.fromState === fromStateId && log.toState === toStateId);
 
                     const isSelfLoop = fromStateId === toStateId;
 
                     // Core line stroke styling
-                    let strokeColor = 'rgba(168, 85, 247, 0.18)'; 
-                    let strokeWidth = 1.5;
+                    let strokeColor: string | undefined = 'rgba(168, 85, 247, 0.18)'; 
+                    let strokeWidth: number | string | undefined = 1.5;
                     let markerEndSuffix = 'std';
                     let isAnimated = false;
 
                     if (isLastTransitionTaken) {
-                      strokeColor = '#fbbf24'; // hot transition glowing
-                      strokeWidth = 3;
-                      markerEndSuffix = 'hot';
-                      isAnimated = true;
+                      if (isSelfLoop) {
+                        strokeColor = undefined;
+                        strokeWidth = undefined;
+                        markerEndSuffix = 'hot';
+                      } else {
+                        strokeColor = '#fbbf24'; // hot transition glowing
+                        strokeWidth = 3;
+                        markerEndSuffix = 'hot';
+                        isAnimated = true;
+                      }
                     } else if (isAnyTransitionTaken && simulationStatus !== 'idle') {
                       strokeColor = 'rgba(124, 58, 237, 0.5)'; // previously visited trail link
                       strokeWidth = 1.8;
@@ -1521,29 +1682,35 @@ export default function App() {
                     const rTo = isToStart ? 20 : toNode.isAccepting ? 24 : 20;
 
                     // Render curved or straight lines/loops
+                    const transitionKey = isLastTransitionTaken ? `${key}-${historyLog.length}` : key;
+                    let animatedClass = isAnimated ? 'animated-beam flash-path' : '';
+                    if (isSelfLoop && isLastTransitionTaken) {
+                      animatedClass = 'animated-beam self-loop-active';
+                    }
+
                     if (isSelfLoop) {
-                      // Curved circle path above the star node, sized dynamically based on state radius
+                      // Curved circle path above the star node, sized tightly to avoid cropping
                       const R = rFrom;
                       const xStart = fromNode.x - R * 0.6;
                       const yStart = fromNode.y - R * 0.8;
                       const xEnd = fromNode.x + R * 0.6;
                       const yEnd = fromNode.y - R * 0.8;
                       
-                      const cp1x = fromNode.x - R * 1.25;
-                      const cp1y = fromNode.y - R * 2.2;
-                      const cp2x = fromNode.x + R * 1.25;
-                      const cp2y = fromNode.y - R * 2.2;
+                      const cp1x = fromNode.x - R * 1.1;
+                      const cp1y = fromNode.y - R * 1.6;
+                      const cp2x = fromNode.x + R * 1.1;
+                      const cp2y = fromNode.y - R * 1.6;
 
                       const arcPath = `M ${xStart} ${yStart} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${xEnd} ${yEnd}`;
                       return (
-                        <g key={key}>
+                        <g key={transitionKey}>
                           <path
                             d={arcPath}
                             fill="none"
                             stroke={strokeColor}
                             strokeWidth={strokeWidth}
                             markerEnd={`url(#arrow-${markerEndSuffix})`}
-                            className={isAnimated ? 'animated-beam' : ''}
+                            className={animatedClass}
                             style={isLastTransitionTaken ? { filter: 'url(#glow-line)' } : {}}
                           />
                           <rect
@@ -1610,14 +1777,14 @@ export default function App() {
                       const by = 0.25 * startPointY + 0.5 * cy + 0.25 * endPointY;
 
                       return (
-                        <g key={key}>
+                        <g key={transitionKey}>
                           <path
                             d={bezierPath}
                             fill="none"
                             stroke={strokeColor}
                             strokeWidth={strokeWidth}
                             markerEnd={`url(#arrow-${markerEndSuffix})`}
-                            className={isAnimated ? 'animated-beam' : ''}
+                            className={animatedClass}
                             style={isLastTransitionTaken ? { filter: 'url(#glow-line)' } : {}}
                           />
                           <rect
@@ -1658,7 +1825,7 @@ export default function App() {
                       const textY = (fromNode.y + toNode.y) / 2;
 
                       return (
-                        <g key={key}>
+                        <g key={transitionKey}>
                           <line
                             x1={startPointX}
                             y1={startPointY}
@@ -1667,7 +1834,7 @@ export default function App() {
                             stroke={strokeColor}
                             strokeWidth={strokeWidth}
                             markerEnd={`url(#arrow-${markerEndSuffix})`}
-                            className={isAnimated ? 'animated-beam' : ''}
+                            className={animatedClass}
                             style={isLastTransitionTaken ? { filter: 'url(#glow-line)' } : {}}
                           />
                           <rect
@@ -1732,12 +1899,10 @@ export default function App() {
                     let borderFill = '#1e293b'; 
                     let borderStroke = 'rgba(255, 255, 255, 0.3)';
                     let labelColor = '#e2e8f0';
-                    let innerPulse = false;
                     let glowFilter = '';
                     let circleRadius = 20;
 
                     if (isCurrent) {
-                      innerPulse = true;
                       if (isStart) {
                         // Green start state (active)
                         borderFill = '#10b981'; 
@@ -1921,6 +2086,51 @@ export default function App() {
                         {simulationStatus === 'accepted' 
                           ? 'Complete pattern matched perfectly' 
                           : `Stuck at state ${currentStateId} on final check`}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Overlaid Batch Summary Notification */}
+                {showBatchSummary && (
+                  <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm z-20 flex items-center justify-center p-4">
+                    <div className="bg-slate-900 border border-purple-500/30 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
+                      <div className="bg-purple-900/40 border-b border-purple-500/30 p-4 flex justify-between items-center">
+                        <h3 className="text-white font-bold flex items-center gap-2"><Layers className="w-5 h-5 text-purple-400" /> Batch Execution Summary</h3>
+                        <button onClick={() => setShowBatchSummary(false)} className="text-slate-400 hover:text-white">×</button>
+                      </div>
+                      <div className="p-4 max-h-[60vh] overflow-y-auto">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="border-b border-white/10 text-xs text-slate-400">
+                              <th className="pb-2 font-semibold">Input String</th>
+                              <th className="pb-2 font-semibold text-right">Verdict</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {batchResults.map((res, idx) => (
+                              <tr key={idx} className="border-b border-white/5 text-sm font-mono">
+                                <td className="py-3 text-slate-200">{res.input || '<empty>'}</td>
+                                <td className="py-3 text-right">
+                                  {res.verdict === 'accepted' ? (
+                                    <span className="inline-flex items-center gap-1 text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded text-xs font-bold">
+                                      <CheckCircle2 className="w-3.5 h-3.5" /> ACCEPTED
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-rose-400 bg-rose-400/10 px-2 py-1 rounded text-xs font-bold">
+                                      <XCircle className="w-3.5 h-3.5" /> REJECTED
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="p-4 border-t border-white/5 bg-slate-950">
+                        <button onClick={() => setShowBatchSummary(false)} className="w-full bg-slate-800 hover:bg-slate-700 text-white rounded-lg py-2 text-sm font-bold transition-colors">
+                          Close Summary
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -2328,7 +2538,7 @@ export default function App() {
                             <feMergeNode in="SourceGraphic" />
                           </feMerge>
                         </filter>
-                        <filter id="pda-glow-line" x="-10%" y="-10%" width="120%" height="120%">
+                        <filter id="pda-glow-line" filterUnits="userSpaceOnUse" x="-20%" y="-20%" width="140%" height="140%">
                           <feGaussianBlur stdDeviation="3" result="blur" />
                           <feMerge>
                             <feMergeNode in="blur" />
@@ -2369,16 +2579,22 @@ export default function App() {
 
                         const isSelfLoop = transition.from === transition.to;
 
-                        let strokeColor = 'rgba(168, 85, 247, 0.22)';
-                        let strokeWidth = 1.5;
+                        let strokeColor: string | undefined = 'rgba(168, 85, 247, 0.22)';
+                        let strokeWidth: number | string | undefined = 1.5;
                         let markerEndSuffix = 'std';
                         let isAnimated = false;
 
                         if (isLastTransitionTaken) {
-                          strokeColor = '#fbbf24';
-                          strokeWidth = 3;
-                          markerEndSuffix = 'hot';
-                          isAnimated = true;
+                          if (isSelfLoop) {
+                            strokeColor = undefined;
+                            strokeWidth = undefined;
+                            markerEndSuffix = 'hot';
+                          } else {
+                            strokeColor = '#fbbf24';
+                            strokeWidth = 3;
+                            markerEndSuffix = 'hot';
+                            isAnimated = true;
+                          }
                         } else if (isAnyTransitionTaken && pdaStatus !== 'idle') {
                           strokeColor = 'rgba(124, 58, 237, 0.55)';
                           strokeWidth = 1.8;
@@ -2401,6 +2617,11 @@ export default function App() {
                         const rFrom = 32;
                         const rTo = 32;
                         const arrowOffset = 2.5;
+                        const transitionKey = isLastTransitionTaken ? `trans-${index}-${pdaHistory.length}` : `trans-${index}`;
+                        let animatedClass = isAnimated ? 'animated-beam flash-path' : '';
+                        if (isSelfLoop && isLastTransitionTaken) {
+                          animatedClass = 'animated-beam self-loop-active';
+                        }
                                     // self loop logic (drawn to the right side to avoid overlapping vertical lines)
                         if (isSelfLoop) {
                           const R = rFrom;
@@ -2416,14 +2637,14 @@ export default function App() {
 
                           const arcPath = `M ${xStart} ${yStart} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${xEnd} ${yEnd}`;
                           return (
-                            <g key={`trans-${index}`}>
+                            <g key={transitionKey}>
                               <path
                                 d={arcPath}
                                 fill="none"
                                 stroke={strokeColor}
                                 strokeWidth={strokeWidth}
                                 markerEnd={`url(#pda-arrow-${markerEndSuffix})`}
-                                className={isAnimated ? 'animated-beam' : ''}
+                                className={animatedClass}
                                 style={isLastTransitionTaken ? { filter: 'url(#pda-glow-line)' } : {}}
                               />
                               <rect
@@ -2476,14 +2697,14 @@ export default function App() {
                           const by = 0.25 * startPointY + 0.5 * cy + 0.25 * endPointY;
 
                           return (
-                            <g key={`trans-${index}`}>
+                            <g key={transitionKey}>
                               <path
                                 d={bezierPath}
                                 fill="none"
                                 stroke={strokeColor}
                                 strokeWidth={strokeWidth}
                                 markerEnd={`url(#pda-arrow-${markerEndSuffix})`}
-                                className={isAnimated ? 'animated-beam' : ''}
+                                className={animatedClass}
                                 style={isLastTransitionTaken ? { filter: 'url(#pda-glow-line)' } : {}}
                               />
                               {transition.symbol !== '' && (
@@ -2526,7 +2747,7 @@ export default function App() {
                           const textY = (fromNode.y + toNode.y) / 2;
 
                           return (
-                            <g key={`trans-${index}`}>
+                            <g key={transitionKey}>
                               <line
                                 x1={startPointX}
                                 y1={startPointY}
@@ -2535,7 +2756,7 @@ export default function App() {
                                 stroke={strokeColor}
                                 strokeWidth={strokeWidth}
                                 markerEnd={`url(#pda-arrow-${markerEndSuffix})`}
-                                className={isAnimated ? 'animated-beam' : ''}
+                                className={animatedClass}
                                 style={isLastTransitionTaken ? { filter: 'url(#pda-glow-line)' } : {}}
                               />
                               {transition.symbol !== '' && (
@@ -3051,6 +3272,21 @@ export default function App() {
           </div>
         </div>
       )}
+      {/* Toast Notification Container */}
+      {batchNotification && (
+        <div className="fixed top-8 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="bg-slate-900/95 border border-purple-500/50 shadow-[0_0_20px_rgba(168,85,247,0.3)] backdrop-blur-md rounded-full px-6 py-3 flex items-center gap-3">
+            <span className="flex h-3 w-3 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-purple-500"></span>
+            </span>
+            <span className="text-sm font-mono font-bold tracking-widest text-purple-200">
+              {batchNotification}
+            </span>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
