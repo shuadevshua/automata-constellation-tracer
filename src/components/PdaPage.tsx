@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Cpu, HelpCircle, Layers, Compass, Loader, ArrowUpRight } from 'lucide-react';
+import { Cpu, Layers, Compass, Loader } from 'lucide-react';
 
 export const PdaPage: React.FC = () => {
   const [selectedPda, setSelectedPda] = useState('pda1');

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
-  GitFork, 
   BookOpen, 
   Sliders, 
   Play, 
@@ -11,10 +10,7 @@ import {
   XCircle, 
   AlertTriangle, 
   Compass, 
-  Code, 
-  Terminal, 
-  Sparkles,
-  Milestone
+  Terminal
 } from 'lucide-react';
 
 interface DerivationNode {

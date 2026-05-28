@@ -1,7 +1,7 @@
 import React from 'react';
 import { Dfa, SimulationStatus, LogEntry } from '../types';
 import { 
-  Play, Pause, SkipForward, RotateCcw, Sparkles, HelpCircle, AlertTriangle, 
+  Play, Pause, SkipForward, RotateCcw, HelpCircle, AlertTriangle, 
   CheckCircle2, XCircle, Gauge, Eye, Terminal, BookOpen
 } from 'lucide-react';
 
