@@ -511,9 +511,17 @@ export const CfgPage: React.FC = () => {
       if (!parsedData.isValid) {
         // String is rejected/invalid
         const currentInput = batchInputs[currentBatchIndex];
+        let hasInvalidChar = false;
+        for (let i = 0; i < currentInput.length; i++) {
+          if (!activeCfg.alphabet.includes(currentInput[i])) {
+            hasInvalidChar = true;
+            break;
+          }
+        }
+        const verdict = hasInvalidChar ? 'error' : 'rejected';
         setBatchResults(prev => {
           const newResults = [...prev];
-          newResults[currentBatchIndex] = { input: currentInput, verdict: 'rejected' };
+          newResults[currentBatchIndex] = { input: currentInput, verdict };
           return newResults;
         });
 
@@ -532,6 +540,31 @@ export const CfgPage: React.FC = () => {
             setInputString(batchInputs[nextIndex]);
             setSimulationStatus('idle');
             setCurrentStepIndex(0);
+
+            // Check if the next string is valid before setting status to running
+            const nextStr = batchInputs[nextIndex];
+            let nextIsValid = true;
+            for (let i = 0; i < nextStr.length; i++) {
+              if (!activeCfg.alphabet.includes(nextStr[i])) {
+                nextIsValid = false;
+                break;
+              }
+            }
+            if (nextIsValid) {
+              const partitionVars = activeCfg.id === 'cfg1' 
+                ? ['X', 'A', 'B', 'Y', 'Z', 'C'] 
+                : ['A', 'X', 'B', 'Y', 'C', 'Z', 'D'];
+              const partitions = findPartition(nextStr, partitionVars, 0);
+              if (!partitions) {
+                nextIsValid = false;
+              }
+            }
+
+            if (nextIsValid) {
+              setTimeout(() => {
+                setSimulationStatus('running');
+              }, 50);
+            }
           }, 1500);
         } else {
           // Batch finished
@@ -565,9 +598,30 @@ export const CfgPage: React.FC = () => {
             setSimulationStatus('idle');
             setCurrentStepIndex(0);
             
-            setTimeout(() => {
-              setSimulationStatus('running');
-            }, 50);
+            // Check if the next string is valid before setting status to running
+            const nextStr = batchInputs[nextIndex];
+            let nextIsValid = true;
+            for (let i = 0; i < nextStr.length; i++) {
+              if (!activeCfg.alphabet.includes(nextStr[i])) {
+                nextIsValid = false;
+                break;
+              }
+            }
+            if (nextIsValid) {
+              const partitionVars = activeCfg.id === 'cfg1' 
+                ? ['X', 'A', 'B', 'Y', 'Z', 'C'] 
+                : ['A', 'X', 'B', 'Y', 'C', 'Z', 'D'];
+              const partitions = findPartition(nextStr, partitionVars, 0);
+              if (!partitions) {
+                nextIsValid = false;
+              }
+            }
+
+            if (nextIsValid) {
+              setTimeout(() => {
+                setSimulationStatus('running');
+              }, 50);
+            }
           }, 1500);
         } else {
           // Batch finished
@@ -1138,6 +1192,10 @@ export const CfgPage: React.FC = () => {
                               {res.verdict === 'accepted' ? (
                                 <span className="inline-flex items-center gap-1 text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded text-xs font-bold">
                                   <CheckCircle2 className="w-3.5 h-3.5" /> ACCEPTED
+                                </span>
+                              ) : res.verdict === 'error' ? (
+                                <span className="inline-flex items-center gap-1 text-amber-500 bg-amber-500/10 px-2 py-1 rounded text-xs font-bold">
+                                  <AlertTriangle className="w-3.5 h-3.5" /> ERROR
                                 </span>
                               ) : (
                                 <span className="inline-flex items-center gap-1 text-rose-400 bg-rose-400/10 px-2 py-1 rounded text-xs font-bold">
