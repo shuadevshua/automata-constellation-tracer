@@ -1249,18 +1249,6 @@ export default function App() {
             <span>DFA</span>
           </button>
           <button
-            id="tab-pda"
-            onClick={() => setSelectedTab('pda')}
-            className={`px-4 md:px-6 py-1.5 rounded-full text-xs font-semibold tracking-wider transition-all duration-300 flex items-center gap-2 ${
-              selectedTab === 'pda' 
-                ? 'bg-fuchsia-600 text-white shadow-md shadow-fuchsia-900/40 font-bold scale-105' 
-                : 'text-slate-400 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <Database className="w-3.5 h-3.5" />
-            <span>PDA</span>
-          </button>
-          <button
             id="tab-cfg"
             onClick={() => setSelectedTab('cfg')}
             className={`px-4 md:px-6 py-1.5 rounded-full text-xs font-semibold tracking-wider transition-all duration-300 flex items-center gap-2 ${
@@ -1271,6 +1259,18 @@ export default function App() {
           >
             <BookOpen className="w-3.5 h-3.5" />
             <span>CFG</span>
+          </button>
+          <button
+            id="tab-pda"
+            onClick={() => setSelectedTab('pda')}
+            className={`px-4 md:px-6 py-1.5 rounded-full text-xs font-semibold tracking-wider transition-all duration-300 flex items-center gap-2 ${
+              selectedTab === 'pda' 
+                ? 'bg-fuchsia-600 text-white shadow-md shadow-fuchsia-900/40 font-bold scale-105' 
+                : 'text-slate-400 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <Database className="w-3.5 h-3.5" />
+            <span>PDA</span>
           </button>
           <button
             id="tab-manual"
@@ -2376,7 +2376,7 @@ export default function App() {
           </>
         )}
 
-        {/* ======================= TAB 2: PDA SYSTEM ======================= */}
+        {/* ======================= TAB 3: PDA SYSTEM ======================= */}
         {selectedTab === 'pda' && (
           <>
             {/* Sidebar Controls Panel */}
@@ -3454,7 +3454,7 @@ export default function App() {
           </>
         )}
 
-        {/* ======================= TAB 3: CFG MOUNT POINT ======================= */}
+        {/* ======================= TAB 2: CFG MOUNT POINT ======================= */}
         {selectedTab === 'cfg' && (
           <div id="section-cfg" className="flex-1 overflow-y-auto w-full p-4 md:p-6 pb-20">
             <CfgPage />

@@ -19,21 +19,21 @@ export const Tabs: React.FC<TabsProps> = ({ activeTab, onChange }) => {
       desc: 'Active Tracing Model'
     },
     {
-      id: 'pda' as const,
-      name: 'Pushdown Automata (PDA)',
-      short: 'PDA Tracer',
-      icon: Cpu,
-      color: 'from-purple-500 to-pink-500',
-      activeColor: 'text-purple-400 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.25)]',
-      desc: 'Empty / Future Projector'
-    },
-    {
       id: 'cfg' as const,
       name: 'Context-Free Grammar (CFG)',
       short: 'CFG Tracer',
       icon: Braces,
       color: 'from-emerald-500 to-teal-500',
       activeColor: 'text-emerald-400 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.25)]',
+      desc: 'Empty / Future Projector'
+    },
+    {
+      id: 'pda' as const,
+      name: 'Pushdown Automata (PDA)',
+      short: 'PDA Tracer',
+      icon: Cpu,
+      color: 'from-purple-500 to-pink-500',
+      activeColor: 'text-purple-400 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.25)]',
       desc: 'Empty / Future Projector'
     },
   ];
